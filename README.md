@@ -76,4 +76,3 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=... -
 ```
 
 Mapa: © colaboradores de OpenStreetMap, teselas de [OpenFreeMap](https://openfreemap.org).
-# Beside
