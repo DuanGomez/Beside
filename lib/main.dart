@@ -191,9 +191,41 @@ class GateState extends State<Gate> {
 /// Saca el código de un enlace o texto: "beside://join/BSD-4K7Q", "BSD-4K7Q" o "4K7Q".
 String? inviteCodeFrom(String raw) {
   final text = raw.trim().toUpperCase();
-  final m = RegExp(r'BSD-?([A-Z0-9]{4})').firstMatch(text);
+  // Mismo alfabeto que el servidor: sin I, L, O, 0 ni 1 para no confundirlas
+  const chars = '[A-HJKMNP-Z2-9]';
+  final m = RegExp('BSD-?($chars{4})').firstMatch(text);
   if (m != null) return 'BSD-${m.group(1)}';
-  if (RegExp(r'^[A-Z0-9]{4}$').hasMatch(text)) return 'BSD-$text';
+  if (RegExp('^$chars{4}\$').hasMatch(text)) return 'BSD-$text';
+  return null;
+}
+
+class _Splash extends StatelessWidget {
+  const _Splash();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(child: BesideLogo(size: 76)),
+      );
+}
+
+class _MissingConfig extends StatelessWidget {
+  const _MissingConfig();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Padding(
+          padding: EdgeInsets.all(32),
+          child: Center(
+            child: Text(
+              'Falta configurar Supabase.\nCompila con --dart-define=SUPABASE_URL=... y --dart-define=SUPABASE_ANON_KEY=... (ver README).',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: C.muted),
+            ),
+          ),
+        ),
+      );
+}
+).hasMatch(text)) return 'BSD-$text';
   return null;
 }
 
