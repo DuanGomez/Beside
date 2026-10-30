@@ -225,33 +225,3 @@ class _MissingConfig extends StatelessWidget {
         ),
       );
 }
-).hasMatch(text)) return 'BSD-$text';
-  return null;
-}
-
-class _Splash extends StatelessWidget {
-  const _Splash();
-
-  @override
-  Widget build(BuildContext context) => const Scaffold(
-        body: Center(child: BesideLogo(size: 76)),
-      );
-}
-
-class _MissingConfig extends StatelessWidget {
-  const _MissingConfig();
-
-  @override
-  Widget build(BuildContext context) => const Scaffold(
-        body: Padding(
-          padding: EdgeInsets.all(32),
-          child: Center(
-            child: Text(
-              'Falta configurar Supabase.\nCompila con --dart-define=SUPABASE_URL=... y --dart-define=SUPABASE_ANON_KEY=... (ver README).',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: C.muted),
-            ),
-          ),
-        ),
-      );
-}
