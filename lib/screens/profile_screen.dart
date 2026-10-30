@@ -238,7 +238,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Column(children: [
                   _SwitchRow(
                     title: 'Recibir avisos',
-                    subtitle: 'Cuando alguien llegue o salga de un lugar marcado.',
+                    subtitle: 'Llegadas y salidas de lugares, batería baja, cuando ponen a cargar el celular o se les apaga.',
                     value: _notify,
                     onChanged: _setNotify,
                   ),
