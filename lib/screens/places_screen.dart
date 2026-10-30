@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -7,7 +6,7 @@ import '../services/app_state.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import '../widgets/common.dart';
-import '../widgets/dark_map.dart';
+import '../widgets/beside_map.dart';
 
 class PlacesScreen extends StatelessWidget {
   const PlacesScreen({super.key});
@@ -152,7 +151,7 @@ class PlaceEditor extends StatefulWidget {
 }
 
 class _PlaceEditorState extends State<PlaceEditor> {
-  final _map = MapController();
+  final _map = BesideMapController();
   final _s = AppState.instance;
   late final _name = TextEditingController(text: widget.place?.name ?? '');
   late LatLng _center = widget.place != null
@@ -259,31 +258,16 @@ class _PlaceEditorState extends State<PlaceEditor> {
         SizedBox(
           height: 280,
           child: Stack(children: [
-            FlutterMap(
-              mapController: _map,
-              options: MapOptions(
-                initialCenter: _center,
-                initialZoom: 17,
-                backgroundColor: C.map,
-                interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
-                onPositionChanged: (camera, _) => setState(() => _center = camera.center),
-              ),
-              children: [
-                darkTiles(),
-                CircleLayer(circles: [
-                  CircleMarker(
-                    point: _center,
-                    radius: _radius,
-                    useRadiusInMeter: true,
-                    color: color.withValues(alpha: 0.16),
-                    borderColor: color,
-                    borderStrokeWidth: 2,
-                  ),
-                ]),
+            BesideMap(
+              controller: _map,
+              initialCenter: _center,
+              initialZoom: 17,
+              onCameraMove: (center, _) => setState(() => _center = center),
+              circles: [
+                MapCircle(id: 'radio', center: _center, radius: _radius, color: color, fill: 0.16, stroke: 2),
               ],
             ),
             IgnorePointer(child: Center(child: PlaceIcon(icon: _icon, size: 40))),
-            mapAttribution(),
             Positioned(
               right: 12,
               top: 12,

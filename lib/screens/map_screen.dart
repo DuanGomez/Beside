@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -11,7 +10,7 @@ import '../services/app_state.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import '../widgets/common.dart';
-import '../widgets/dark_map.dart';
+import '../widgets/beside_map.dart';
 import 'invite_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -22,7 +21,7 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMixin {
-  final _map = MapController();
+  final _map = BesideMapController();
   final _state = AppState.instance;
   bool _ready = false;
   bool _follow = true;
@@ -90,8 +89,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     if (moved) {
       _from.addAll(_shown); // arrancar desde donde se ve ahora
       _glide.forward(from: 0);
-    } else if (!_glide.isAnimating) {
-      _followSelected();
+      final target = _state.selectedId == null ? null : _to[_state.selectedId];
+      if (_ready && _follow && _centered && target != null) _map.animateTo(target);
     }
   }
 
@@ -101,14 +100,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
       final a = _from[id] ?? b;
       _shown[id] = LatLng(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t);
     });
-    _followSelected();
     if (mounted) setState(() {});
-  }
-
-  void _followSelected() {
-    final id = _state.selectedId;
-    final p = id == null ? null : _shown[id];
-    if (_ready && _follow && _centered && p != null) _map.move(p, _map.camera.zoom);
   }
 
   Future<void> _resolveAddress(Live live) async {
@@ -165,56 +157,45 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     final top = MediaQuery.paddingOf(context).top;
 
     return Stack(children: [
-      FlutterMap(
-        mapController: _map,
-        options: MapOptions(
-          initialCenter: live != null ? LatLng(live.lat, live.lng) : const LatLng(6.2442, -75.5812),
-          initialZoom: live != null ? 16 : 12,
-          backgroundColor: C.map,
-          interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
-          onMapReady: () {
-            _ready = true;
-            _onState();
-          },
-          onPositionChanged: (camera, hasGesture) {
-            if (hasGesture && _follow) setState(() => _follow = false);
-          },
-        ),
-        children: [
-          darkTiles(),
-          placeCircles(s.places, highlightId: place?.id),
-          placeMarkers(s.places),
+      BesideMap(
+        controller: _map,
+        initialCenter: live != null ? LatLng(live.lat, live.lng) : const LatLng(6.2442, -75.5812),
+        initialZoom: live != null ? 16 : 12,
+        // El centro del mapa queda sobre la tarjeta de abajo y el logo de Google a la vista
+        padding: EdgeInsets.only(top: top + 70, bottom: MediaQuery.paddingOf(context).bottom + 300),
+        onReady: () {
+          _ready = true;
+          _onState();
+        },
+        onUserGesture: () {
+          if (_follow) setState(() => _follow = false);
+        },
+        onPersonTap: s.select,
+        places: s.places,
+        highlightPlaceId: place?.id,
+        circles: [
           if (live?.accuracy != null && live!.accuracy! > 20)
-            CircleLayer(circles: [
-              CircleMarker(
-                point: _shown[live.userId] ?? LatLng(live.lat, live.lng),
-                radius: live.accuracy!,
-                useRadiusInMeter: true,
-                color: hexColor(selected?.color).withValues(alpha: 0.08),
-                borderColor: hexColor(selected?.color).withValues(alpha: 0.3),
-                borderStrokeWidth: 1,
+            MapCircle(
+              id: 'precision',
+              center: _shown[live.userId] ?? LatLng(live.lat, live.lng),
+              radius: live.accuracy!,
+              color: hexColor(selected?.color).withValues(alpha: 0.35),
+              fill: 0.08,
+              stroke: 1,
+            ),
+        ],
+        people: [
+          for (final l in s.lives.values)
+            if (s.members.containsKey(l.userId))
+              MapPerson(
+                id: l.userId,
+                member: s.members[l.userId],
+                position: _shown[l.userId] ?? LatLng(l.lat, l.lng),
+                selected: l.userId == s.selectedId,
+                stale: DateTime.now().difference(l.updatedAt) > const Duration(minutes: 30),
               ),
-            ]),
-          MarkerLayer(markers: [
-            for (final l in s.lives.values)
-              if (s.members.containsKey(l.userId))
-                Marker(
-                  point: _shown[l.userId] ?? LatLng(l.lat, l.lng),
-                  width: l.userId == s.selectedId ? 120 : 46,
-                  height: l.userId == s.selectedId ? 120 : 46,
-                  child: GestureDetector(
-                    onTap: () => s.select(l.userId),
-                    child: PersonMarker(
-                      member: s.members[l.userId],
-                      selected: l.userId == s.selectedId,
-                      stale: DateTime.now().difference(l.updatedAt) > const Duration(minutes: 30),
-                    ),
-                  ),
-                ),
-          ]),
         ],
       ),
-      mapAttribution(),
 
       // Encabezado: "Mi amor está en el Gym"
       Positioned(

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../demo.dart';
@@ -7,7 +6,7 @@ import '../services/app_state.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import '../widgets/common.dart';
-import '../widgets/dark_map.dart';
+import '../widgets/beside_map.dart';
 
 /// Recorridos de los últimos 30 días, día por día.
 class HistoryScreen extends StatefulWidget {
@@ -19,7 +18,7 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final _s = AppState.instance;
-  final _map = MapController();
+  final _map = BesideMapController();
   String? _person;
   DateTime _day = DateTime.now();
   bool _loading = false;
@@ -105,11 +104,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (_points.isEmpty) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       try {
-        if (_points.length == 1) {
-          _map.move(_points.first.p, 16);
-        } else {
-          _map.fitCamera(CameraFit.coordinates(coordinates: _points.map((e) => e.p).toList(), padding: const EdgeInsets.all(36)));
-        }
+        _map.fit(_points.map((e) => e.p).toList(), padding: 36);
       } catch (_) {}
     });
   }
@@ -209,30 +204,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: SizedBox(
                   height: 260,
                   child: Stack(children: [
-                    FlutterMap(
-                      mapController: _map,
-                      options: const MapOptions(
-                        initialCenter: LatLng(6.2442, -75.5812),
-                        initialZoom: 13,
-                        backgroundColor: C.map,
-                        interactionOptions: InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
-                      ),
-                      children: [
-                        darkTiles(),
-                        placeCircles(_s.places),
-                        if (_points.length > 1)
-                          PolylineLayer(polylines: [
-                            Polyline(points: _points.map((e) => e.p).toList(), strokeWidth: 9, color: hexColor(person?.color).withValues(alpha: 0.18)),
-                            Polyline(points: _points.map((e) => e.p).toList(), strokeWidth: 4, color: hexColor(person?.color), strokeCap: StrokeCap.round, strokeJoin: StrokeJoin.round),
-                          ]),
-                        if (_points.isNotEmpty)
-                          MarkerLayer(markers: [
-                            Marker(point: _points.first.p, width: 16, height: 16, child: _Dot(color: C.text, fill: C.map)),
-                            Marker(point: _points.last.p, width: 34, height: 34, child: Avatar(member: person, size: 30)),
-                          ]),
+                    BesideMap(
+                      controller: _map,
+                      initialCenter: const LatLng(6.2442, -75.5812),
+                      initialZoom: 13,
+                      onReady: _fit,
+                      places: _s.places,
+                      lines: [
+                        if (_points.length > 1) ...[
+                          MapLine(id: 'halo', points: _points.map((e) => e.p).toList(), color: hexColor(person?.color).withValues(alpha: 0.2), width: 10),
+                          MapLine(id: 'ruta', points: _points.map((e) => e.p).toList(), color: hexColor(person?.color), width: 5),
+                        ],
+                      ],
+                      startDot: _points.length > 1 ? _points.first.p : null,
+                      people: [
+                        if (_points.isNotEmpty && person != null) MapPerson(id: person.id, member: person, position: _points.last.p),
                       ],
                     ),
-                    mapAttribution(),
                     if (_loading) const Center(child: CircularProgressIndicator()),
                     if (!_loading && _points.isEmpty)
                       Center(
@@ -382,14 +370,4 @@ class _Pill extends StatelessWidget {
         decoration: BoxDecoration(color: const Color(0xE6221C25), borderRadius: BorderRadius.circular(999), border: Border.all(color: C.border)),
         child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
       );
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({required this.color, required this.fill});
-  final Color color;
-  final Color fill;
-
-  @override
-  Widget build(BuildContext context) =>
-      Container(decoration: BoxDecoration(shape: BoxShape.circle, color: fill, border: Border.all(color: color, width: 3)));
 }
