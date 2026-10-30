@@ -6,8 +6,6 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>GMSApiKey</key>
-	<string>MAPS_API_KEY_PLACEHOLDER</string>
 	<key>CFBundleDisplayName</key>
 	<string>Beside</string>
 	<key>CFBundleExecutable</key>

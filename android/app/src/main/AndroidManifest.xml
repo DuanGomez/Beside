@@ -18,8 +18,6 @@
         android:label="Beside"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <!-- Clave de Google Maps: llega de la variable MAPS_API_KEY al compilar -->
-        <meta-data android:name="com.google.android.geo.API_KEY" android:value="${mapsApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

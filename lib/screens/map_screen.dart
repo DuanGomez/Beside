@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/app_state.dart';
 import '../theme.dart';
@@ -37,18 +40,106 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   final Map<String, String> _addressCache = {};
   String? _address;
 
+  // Tu ubicación sale directo del GPS de este celular: te ves al instante
+  StreamSubscription<Position>? _gps;
+  LatLng? _myPos;
+
+  // Con quién estás ahora mismo, y desde cuándo
+  final Set<String> _together = {};
+  final Map<String, DateTime> _togetherSince = {};
+
   @override
   void initState() {
     super.initState();
     _state.addListener(_onState);
     _syncPositions(animate: false);
+    _startGps();
+    _loadTogether();
   }
 
   @override
   void dispose() {
     _state.removeListener(_onState);
+    _gps?.cancel();
     _glide.dispose();
     super.dispose();
+  }
+
+  Future<void> _startGps() async {
+    if (_state.demo) return;
+    try {
+      final p = await Geolocator.checkPermission();
+      if (p != LocationPermission.whileInUse && p != LocationPermission.always) return;
+      _gps = Geolocator.getPositionStream(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5)).listen(
+        (pos) {
+          if (pos.accuracy > 150) return;
+          _myPos = LatLng(pos.latitude, pos.longitude);
+          _onState();
+        },
+        onError: (_) {},
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadTogether() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('juntos');
+      if (raw == null) return;
+      final now = DateTime.now();
+      (jsonDecode(raw) as Map<String, dynamic>).forEach((id, iso) {
+        final at = DateTime.tryParse(iso as String? ?? '');
+        // Solo si fue hace poco; si no, seguro se separaron con la app cerrada
+        if (at != null && now.difference(at) < const Duration(hours: 14)) _togetherSince.putIfAbsent(id, () => at);
+      });
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _saveTogether() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('juntos', jsonEncode({for (final id in _together) id: _togetherSince[id]?.toIso8601String()}));
+    } catch (_) {}
+  }
+
+  /// Dónde está cada uno (tú, con el GPS de este celular si lo hay).
+  Map<String, LatLng> _targets() {
+    final t = {for (final l in _state.lives.values) l.userId: LatLng(l.lat, l.lng)};
+    final me = _state.myId;
+    if (me != null && _myPos != null) t[me] = _myPos!;
+    return t;
+  }
+
+  /// Juntos: a menos de 60 m; se separan pasados 120 m (así el GPS no hace parpadear).
+  void _updateTogether() {
+    final me = _state.myId;
+    if (me == null) return;
+    final now = DateTime.now();
+    final myLive = _state.lives[me];
+    final mine = _myPos ?? ((myLive != null && now.difference(myLive.updatedAt) < const Duration(minutes: 15)) ? _to[me] : null);
+    if (mine == null) return;
+    var changed = false;
+    for (final m in _state.others) {
+      final l = _state.lives[m.id];
+      final theirs = _to[m.id];
+      if (l == null || theirs == null) continue;
+      var near = false;
+      if (now.difference(l.updatedAt) < const Duration(minutes: 15)) {
+        final d = const Distance().as(LengthUnit.Meter, mine, theirs);
+        near = _together.contains(m.id) ? d < 120 : d < 60;
+      }
+      if (near) {
+        if (_together.add(m.id)) {
+          _togetherSince.putIfAbsent(m.id, () => now);
+          changed = true;
+        }
+      } else {
+        if (_together.remove(m.id)) changed = true;
+        if (_togetherSince.remove(m.id) != null) changed = true;
+      }
+    }
+    if (changed) _saveTogether();
   }
 
   Live? get _live => _state.selectedId == null ? null : _state.lives[_state.selectedId];
@@ -74,18 +165,19 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
 
   void _syncPositions({required bool animate}) {
     var moved = false;
-    for (final l in _state.lives.values) {
-      final target = LatLng(l.lat, l.lng);
-      final current = _shown[l.userId];
+    for (final e in _targets().entries) {
+      final id = e.key, target = e.value;
+      final current = _shown[id];
       if (current == null || !animate || const Distance().as(LengthUnit.Meter, current, target) > 3000) {
-        _shown[l.userId] = target; // lejos o primera vez: sin animación
-        _from[l.userId] = target;
-        _to[l.userId] = target;
-      } else if (_to[l.userId] != target) {
-        _to[l.userId] = target;
+        _shown[id] = target; // lejos o primera vez: sin animación
+        _from[id] = target;
+        _to[id] = target;
+      } else if (_to[id] != target) {
+        _to[id] = target;
         moved = true;
       }
     }
+    _updateTogether();
     if (moved) {
       _from.addAll(_shown); // arrancar desde donde se ve ahora
       _glide.forward(from: 0);
@@ -155,6 +247,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     final live = _live;
     final place = s.placeById(live?.placeId);
     final top = MediaQuery.paddingOf(context).top;
+    final together = selected != null && _together.contains(selected.id);
 
     return Stack(children: [
       BesideMap(
@@ -185,14 +278,27 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             ),
         ],
         people: [
-          for (final l in s.lives.values)
-            if (s.members.containsKey(l.userId))
+          for (final e in _shown.entries)
+            if (s.members.containsKey(e.key) && !_together.contains(e.key) && !(e.key == s.myId && _together.isNotEmpty))
               MapPerson(
-                id: l.userId,
-                member: s.members[l.userId],
-                position: _shown[l.userId] ?? LatLng(l.lat, l.lng),
-                selected: l.userId == s.selectedId,
-                stale: DateTime.now().difference(l.updatedAt) > const Duration(minutes: 30),
+                id: e.key,
+                member: s.members[e.key],
+                position: e.value,
+                selected: e.key == s.selectedId,
+                stale: e.key == s.myId && _myPos != null
+                    ? false
+                    : DateTime.now().difference(s.lives[e.key]?.updatedAt ?? DateTime(2000)) > const Duration(minutes: 30),
+              ),
+        ],
+        couples: [
+          for (final id in _together)
+            if (s.myId != null && _shown[s.myId] != null && _shown[id] != null)
+              MapCouple(
+                id: id,
+                a: s.me,
+                b: s.members[id],
+                position: LatLng((_shown[s.myId]!.latitude + _shown[id]!.latitude) / 2, (_shown[s.myId]!.longitude + _shown[id]!.longitude) / 2),
+                selected: id == s.selectedId,
               ),
         ],
       ),
@@ -210,16 +316,26 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
               gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, stops: [0.55, 1], colors: [C.map, Color(0x00111318)]),
             ),
             child: Row(children: [
-              GestureDetector(onTap: _pickPerson, child: Avatar(member: selected, size: 54, glow: true)),
+              GestureDetector(
+                onTap: _pickPerson,
+                child: together ? _TogetherAvatars(a: s.me, b: selected) : Avatar(member: selected, size: 54, glow: true),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: GestureDetector(
                   onTap: _pickPerson,
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(selected == null ? 'Tu círculo' : (selected.id == s.myId ? 'Tú estás' : '${s.displayName(selected)} está'),
-                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.muted)),
-                    Text(_headline(live, place), maxLines: 2, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 25, height: 1.1, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                    Text(
+                        together
+                            ? 'Tú y ${s.displayName(selected)}'
+                            : (selected == null ? 'Tu círculo' : (selected.id == s.myId ? 'Tú estás' : '${s.displayName(selected)} está')),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.muted)),
+                    Text(together ? (place != null ? 'juntitos en ${place.name}' : 'están juntitos') : _headline(live, place),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 25, height: 1.1, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: together ? C.accent : null)),
                   ]),
                 ),
               ),
@@ -250,7 +366,13 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
         child: s.others.isEmpty
             ? _InviteCard(onInvite: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InviteScreen())))
             : _EverySecond(
-                builder: (_) => _StatusCard(live: live, place: place, isMe: selected?.id == s.myId, myLive: s.myId == null ? null : s.lives[s.myId]),
+                builder: (_) => _StatusCard(
+                  live: live,
+                  place: place,
+                  isMe: selected?.id == s.myId,
+                  myLive: s.myId == null ? null : s.lives[s.myId],
+                  togetherSince: together ? (_togetherSince[selected.id] ?? DateTime.now()) : null,
+                ),
               ),
       ),
     ]);
@@ -262,6 +384,66 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     if ((live.speed ?? 0) > 2) return 'en camino';
     if (_address != null && _address!.isNotEmpty) return 'cerca de $_address';
     return 'fuera de sus lugares';
+  }
+}
+
+/// Las dos fotos juntas con corazoncitos que suben, para el encabezado.
+class _TogetherAvatars extends StatefulWidget {
+  const _TogetherAvatars({required this.a, required this.b});
+  final Member? a;
+  final Member? b;
+
+  @override
+  State<_TogetherAvatars> createState() => _TogetherAvatarsState();
+}
+
+class _TogetherAvatarsState extends State<_TogetherAvatars> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 3200))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 86,
+      height: 58,
+      child: Stack(clipBehavior: Clip.none, children: [
+        Positioned(left: 0, top: 2, child: Avatar(member: widget.a, size: 50)),
+        Positioned(left: 32, top: 2, child: Avatar(member: widget.b, size: 50, glow: true)),
+        Positioned(
+          left: 31,
+          top: 36,
+          child: Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: C.accent, border: Border.all(color: C.map, width: 2.5)),
+            child: const Icon(Icons.favorite_rounded, size: 13, color: Colors.white),
+          ),
+        ),
+        AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) => Stack(clipBehavior: Clip.none, children: [
+            for (var i = 0; i < 4; i++)
+              Builder(builder: (context) {
+                final t = (_c.value + i / 4) % 1;
+                final fade = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+                return Positioned(
+                  left: 36 + i * 4 + math.sin(t * math.pi * 2 + i) * 9,
+                  top: 18 - t * 44,
+                  child: Opacity(
+                    opacity: fade.clamp(0.0, 1.0) * 0.9,
+                    child: Icon(Icons.favorite_rounded, size: 9 + i * 2.0, color: i.isEven ? C.accent : const Color(0xFFC9B8F7)),
+                  ),
+                );
+              }),
+          ]),
+        ),
+      ]),
+    );
   }
 }
 
@@ -297,11 +479,12 @@ class _EverySecondState extends State<_EverySecond> {
 }
 
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.live, required this.place, required this.isMe, required this.myLive});
+  const _StatusCard({required this.live, required this.place, required this.isMe, required this.myLive, this.togetherSince});
   final Live? live;
   final Place? place;
   final bool isMe;
   final Live? myLive;
+  final DateTime? togetherSince;
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +507,10 @@ class _StatusCard extends StatelessWidget {
     String subtitle;
     final distance = (myLive == null || isMe) ? null : Geolocator.distanceBetween(myLive!.lat, myLive!.lng, l.lat, l.lng);
     final distText = distance == null ? '' : 'a ${km(distance)} de ti';
-    if (place != null && l.placeSince != null) {
+    if (togetherSince != null) {
+      title = 'Juntos desde las ${hour(togetherSince!)}';
+      subtitle = 'Llevan ${duration(DateTime.now().difference(togetherSince!))} juntitos';
+    } else if (place != null && l.placeSince != null) {
       title = 'Llegó a las ${hour(l.placeSince!)}';
       subtitle = ['Hace ${duration(DateTime.now().difference(l.placeSince!))}', if (distText.isNotEmpty) distText].join(' · ');
     } else if ((l.speed ?? 0) > 1.5) {

@@ -16,9 +16,14 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <title>Beside</title>
-  <script src="https://maps.googleapis.com/maps/api/js?key=MAPS_API_KEY_PLACEHOLDER"></script>
   <link rel="manifest" href="manifest.json">
-  <style>html, body { background: #17131A; margin: 0; }</style>
+  <style>
+    html, body { background: #17131A; margin: 0; }
+    /* Créditos del mapa (OpenStreetMap) discretos y en oscuro */
+    .maplibregl-ctrl-attrib { background: rgba(23,19,26,.75) !important; font: 9px sans-serif !important; }
+    .maplibregl-ctrl-attrib a, .maplibregl-ctrl-attrib-inner { color: #8f8596 !important; }
+    .maplibregl-ctrl-attrib-button { filter: invert(1) opacity(.5); }
+  </style>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

@@ -10,6 +10,7 @@ class Demo {
   static final _r = Random(7);
   static Timer? _timer;
 
+  static const _juntos = bool.fromEnvironment('JUNTOS');
   static const _gym = LatLng(6.20830, -75.56790);
   static const _herHome = LatLng(6.21720, -75.57620);
   static const _myHome = LatLng(6.24420, -75.58120);
@@ -61,8 +62,9 @@ class Demo {
           'updated_at': _iso(now.subtract(const Duration(minutes: 1))),
         }),
         'me': Live({
-          'user_id': 'me', 'lat': _myHome.latitude, 'lng': _myHome.longitude, 'accuracy': 8.0, 'speed': 0.0,
-          'battery': 91, 'charging': false, 'place_id': 'p3', 'place_since': _iso(now.subtract(const Duration(hours: 1))),
+          // Con --dart-define=JUNTOS=true la vista previa muestra el modo «juntitos»
+          'user_id': 'me', 'lat': _juntos ? _gym.latitude + 0.0001 : _myHome.latitude, 'lng': _juntos ? _gym.longitude - 0.0001 : _myHome.longitude,
+          'accuracy': 8.0, 'speed': 0.0, 'battery': 91, 'charging': false, 'place_id': _juntos ? 'p1' : 'p3', 'place_since': _iso(now.subtract(const Duration(hours: 1))),
           'updated_at': _iso(now),
         }),
       });
