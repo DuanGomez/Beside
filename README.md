@@ -55,14 +55,16 @@ La app queda en **Releases**: `Beside.apk` para Android y `Beside.ipa` para iPho
 
 ## Instalar
 
-- **Android:** abre el enlace de Releases en el celular, descarga `Beside.apk` y ábrelo. Si lo pide, permite instalar apps de esa fuente.
-- **iPhone (gratis):**
-  1. Descarga `Beside.ipa` en el PC.
-  2. Instálala con [Sideloadly](https://sideloadly.io), usando tu Apple ID y el iPhone conectado por cable.
-  3. En el iPhone, ve a **Ajustes → General → VPN y gestión de dispositivos** y confía en tu Apple ID.
-  4. Con una cuenta gratis de Apple, la app hay que volver a firmarla cada 7 días. Sideloadly puede hacerlo solo por Wi‑Fi.
+- **Android:** abre [Beside.apk](https://github.com/DuanGomez/Beside/releases/latest/download/Beside.apk) en el celular y ábrelo. Si lo pide, permite instalar apps de esa fuente.
+  - Cuando sale una versión nueva, la app avisa sola y la descarga con un toque.
+- **iPhone (gratis, sin programas):**
+  1. Abre [duangomez.github.io/Beside](https://duangomez.github.io/Beside/) en **Safari**.
+  2. Toca **Compartir** y luego **Agregar a inicio**.
+  3. Queda el ícono de Beside en la pantalla de inicio y se abre a pantalla completa.
+  - Se actualiza sola con cada cambio que se sube a `main`.
+  - Comparte tu ubicación mientras está abierta (para ver a los demás es suficiente).
 
-  Con una cuenta de desarrollador de Apple (US$99 al año) se distribuye por TestFlight y dura 90 días.
+  Para tener el `Beside.ipa` completo, con ubicación en segundo plano, se necesita [Sideloadly](https://sideloadly.io) (re-firmar cada 7 días) o una cuenta de desarrollador de Apple (US$99 al año, TestFlight).
 - **Avisos:** instala **ntfy** (App Store o Play Store). Luego, en Beside, ve a **Perfil → Activar avisos en este celular**.
 
 ## Desarrollo
