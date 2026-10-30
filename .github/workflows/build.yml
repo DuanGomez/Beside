@@ -1,0 +1,84 @@
+# Compila Beside para Android (APK firmado) e iPhone (IPA para instalar con Sideloadly)
+# y los publica en GitHub Releases. Se ejecuta al subir una etiqueta v* o a mano.
+name: Compilar app
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.47.9'
+  DEFINES: >-
+    --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }}
+    --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+    --dart-define=SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Llave de firma
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/upload.jks
+          printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=beside\nstoreFile=upload.jks\n" \
+            "${{ secrets.ANDROID_KEY_PASSWORD }}" "${{ secrets.ANDROID_KEY_PASSWORD }}" > android/key.properties
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --release $DEFINES
+      - run: cp build/app/outputs/flutter-apk/app-release.apk Beside.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: Beside.apk
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign $DEFINES
+      - name: Empaquetar IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr Beside.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: Beside.ipa
+
+  release:
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}
+          name: Beside ${{ github.ref_type == 'tag' && github.ref_name || format('build {0}', github.run_number) }}
+          make_latest: true
+          files: |
+            Beside.apk
+            Beside.ipa
+          body: |
+            **Android:** descarga `Beside.apk` en el celular y ábrelo (permite instalar apps de esta fuente si lo pide).
+            **iPhone:** descarga `Beside.ipa` en el PC e instálalo con Sideloadly (ver README).
