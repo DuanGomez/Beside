@@ -51,8 +51,10 @@ class InviteScreen extends StatelessWidget {
                         onPressed: () => SharePlus.instance.share(ShareParams(
                           subject: 'Únete a mi círculo en Beside',
                           text: 'Únete a mi círculo «${c.name}» en Beside para vernos en el mapa.\n\n'
-                              '1. Descarga la app: ${Config.downloadUrl}\n'
-                              '2. Abre este enlace o escribe el código ${c.code}:\nbeside://join/${c.code}',
+                              '1. Instala la app:\n'
+                              '• Android: ${Config.apkUrl}\n'
+                              '• iPhone: abre ${Config.webUrl} en Safari, toca Compartir y luego «Agregar a inicio».\n\n'
+                              '2. Crea tu cuenta y escribe el código ${c.code} (en Android también sirve abrir beside://join/${c.code}).',
                         )),
                         icon: const Icon(Icons.ios_share_rounded, size: 20),
                         label: const Text('Enviar enlace'),

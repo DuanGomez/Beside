@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -251,8 +252,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ]),
               ),
 
-              const SectionLabel('Música'),
-              Panel(
+              if (!kIsWeb) const SectionLabel('Música'),
+              if (!kIsWeb) Panel(
                 child: Row(children: [
                   const SpotifyMark(size: 34),
                   const SizedBox(width: 14),

@@ -79,6 +79,10 @@ class Tracker {
         intervalDuration: Duration(seconds: moving ? 4 : 30),
       );
     }
+    if (!isIOS) {
+      // Web (app en la pantalla de inicio del iPhone): solo con la app abierta
+      return LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: moving ? 5 : 30);
+    }
     return AppleSettings(
       accuracy: moving ? LocationAccuracy.best : LocationAccuracy.medium,
       distanceFilter: moving ? 5 : 30,

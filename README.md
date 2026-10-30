@@ -2,7 +2,7 @@
 
 App para ver en tiempo real dónde está tu gente: la ubicación en el mapa, su batería, la canción que suena en su Spotify, avisos cuando llegan o salen de lugares marcados e historial de recorridos de 30 días.
 
-Hecha con Flutter para Android y iPhone. Funciona gratis con Supabase, OpenFreeMap y ntfy.
+Hecha con Flutter para Android y iPhone. Funciona gratis con Supabase, Esri y ntfy.
 
 ## Cómo funciona
 
@@ -75,4 +75,4 @@ flutter run -d chrome --dart-define=DEMO=true
 flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=... --dart-define=SPOTIFY_CLIENT_ID=...
 ```
 
-Mapa: © colaboradores de OpenStreetMap, teselas de [OpenFreeMap](https://openfreemap.org).
+Mapa: © colaboradores de OpenStreetMap, teselas de Esri (World Dark Gray Canvas).

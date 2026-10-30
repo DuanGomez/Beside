@@ -14,7 +14,7 @@ Widget mapAttribution() => const Positioned(
       left: 10,
       bottom: 4,
       child: IgnorePointer(
-        child: Text('© OpenStreetMap · OpenFreeMap', style: TextStyle(fontSize: 9, color: Color(0x99B9A9B0))),
+        child: Text('© Esri · OpenStreetMap', style: TextStyle(fontSize: 9, color: Color(0x99B9A9B0))),
       ),
     );
 

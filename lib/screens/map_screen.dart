@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
@@ -20,14 +21,20 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMixin {
   final _map = MapController();
   final _state = AppState.instance;
   bool _ready = false;
   bool _follow = true;
-  Timer? _tick;
-  LatLng? _lastCentered;
+  bool _centered = false;
   String? _lastSelected;
+
+  // Posiciones que se muestran: se deslizan hacia la nueva en vez de saltar
+  late final AnimationController _glide = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+    ..addListener(_onGlide);
+  final Map<String, LatLng> _from = {};
+  final Map<String, LatLng> _to = {};
+  final Map<String, LatLng> _shown = {};
   final Map<String, String> _addressCache = {};
   String? _address;
 
@@ -35,16 +42,13 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _state.addListener(_onState);
-    // Un tic por segundo para "hace X s" y la barra de la canción
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
+    _syncPositions(animate: false);
   }
 
   @override
   void dispose() {
     _state.removeListener(_onState);
-    _tick?.cancel();
+    _glide.dispose();
     super.dispose();
   }
 
@@ -55,21 +59,60 @@ class _MapScreenState extends State<MapScreen> {
     if (_state.selectedId != _lastSelected) {
       _lastSelected = _state.selectedId;
       _follow = true;
-      _lastCentered = null;
+      _centered = false;
       _address = null;
     }
+    _syncPositions(animate: true);
     if (live != null) {
-      final p = LatLng(live.lat, live.lng);
-      if (_ready && _follow && (_lastCentered == null || const Distance().as(LengthUnit.Meter, _lastCentered!, p) > 3)) {
-        _map.move(p, _lastCentered == null ? 16 : _map.camera.zoom);
-        _lastCentered = p;
+      if (_ready && !_centered) {
+        _map.move(_shown[live.userId]!, 16);
+        _centered = true;
       }
       if (live.placeId == null) _resolveAddress(live);
     }
     if (mounted) setState(() {});
   }
 
+  void _syncPositions({required bool animate}) {
+    var moved = false;
+    for (final l in _state.lives.values) {
+      final target = LatLng(l.lat, l.lng);
+      final current = _shown[l.userId];
+      if (current == null || !animate || const Distance().as(LengthUnit.Meter, current, target) > 3000) {
+        _shown[l.userId] = target; // lejos o primera vez: sin animación
+        _from[l.userId] = target;
+        _to[l.userId] = target;
+      } else if (_to[l.userId] != target) {
+        _to[l.userId] = target;
+        moved = true;
+      }
+    }
+    if (moved) {
+      _from.addAll(_shown); // arrancar desde donde se ve ahora
+      _glide.forward(from: 0);
+    } else if (!_glide.isAnimating) {
+      _followSelected();
+    }
+  }
+
+  void _onGlide() {
+    final t = Curves.easeInOut.transform(_glide.value);
+    _to.forEach((id, b) {
+      final a = _from[id] ?? b;
+      _shown[id] = LatLng(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t);
+    });
+    _followSelected();
+    if (mounted) setState(() {});
+  }
+
+  void _followSelected() {
+    final id = _state.selectedId;
+    final p = id == null ? null : _shown[id];
+    if (_ready && _follow && _centered && p != null) _map.move(p, _map.camera.zoom);
+  }
+
   Future<void> _resolveAddress(Live live) async {
+    if (kIsWeb) return; // el navegador no tiene geocodificación del sistema
     final key = '${live.lat.toStringAsFixed(3)},${live.lng.toStringAsFixed(3)}';
     if (_addressCache.containsKey(key)) {
       _address = _addressCache[key];
@@ -90,8 +133,8 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _follow = true);
     final live = _live;
     if (live != null) {
-      _map.move(LatLng(live.lat, live.lng), 16.5);
-      _lastCentered = LatLng(live.lat, live.lng);
+      _map.move(_shown[live.userId] ?? LatLng(live.lat, live.lng), 16.5);
+      _centered = true;
     } else {
       try {
         final p = await Geolocator.getLastKnownPosition();
@@ -144,7 +187,7 @@ class _MapScreenState extends State<MapScreen> {
           if (live?.accuracy != null && live!.accuracy! > 20)
             CircleLayer(circles: [
               CircleMarker(
-                point: LatLng(live.lat, live.lng),
+                point: _shown[live.userId] ?? LatLng(live.lat, live.lng),
                 radius: live.accuracy!,
                 useRadiusInMeter: true,
                 color: hexColor(selected?.color).withValues(alpha: 0.08),
@@ -156,7 +199,7 @@ class _MapScreenState extends State<MapScreen> {
             for (final l in s.lives.values)
               if (s.members.containsKey(l.userId))
                 Marker(
-                  point: LatLng(l.lat, l.lng),
+                  point: _shown[l.userId] ?? LatLng(l.lat, l.lng),
                   width: l.userId == s.selectedId ? 120 : 46,
                   height: l.userId == s.selectedId ? 120 : 46,
                   child: GestureDetector(
@@ -225,7 +268,9 @@ class _MapScreenState extends State<MapScreen> {
         bottom: MediaQuery.paddingOf(context).bottom + 86,
         child: s.others.isEmpty
             ? _InviteCard(onInvite: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InviteScreen())))
-            : _StatusCard(live: live, place: place, isMe: selected?.id == s.myId, myLive: s.myId == null ? null : s.lives[s.myId]),
+            : _EverySecond(
+                builder: (_) => _StatusCard(live: live, place: place, isMe: selected?.id == s.myId, myLive: s.myId == null ? null : s.lives[s.myId]),
+              ),
       ),
     ]);
   }
@@ -237,6 +282,37 @@ class _MapScreenState extends State<MapScreen> {
     if (_address != null && _address!.isNotEmpty) return 'cerca de $_address';
     return 'fuera de sus lugares';
   }
+}
+
+/// Redibuja solo su contenido cada segundo ("hace X s", barra de la canción),
+/// sin tocar el mapa.
+class _EverySecond extends StatefulWidget {
+  const _EverySecond({required this.builder});
+  final WidgetBuilder builder;
+
+  @override
+  State<_EverySecond> createState() => _EverySecondState();
+}
+
+class _EverySecondState extends State<_EverySecond> {
+  late final Timer _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    if (mounted) setState(() {});
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    _timer;
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context);
 }
 
 class _StatusCard extends StatelessWidget {

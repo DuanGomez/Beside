@@ -1,5 +1,6 @@
 import 'package:beside/util/platform.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
@@ -554,6 +555,19 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
   }
 
   Future<void> _check() async {
+    if (kIsWeb) {
+      // En el navegador solo existe "mientras la app está abierta"
+      final p = await Geolocator.checkPermission();
+      final granted = p == LocationPermission.whileInUse || p == LocationPermission.always;
+      if (mounted) {
+        setState(() {
+          _service = true;
+          _whenInUse = granted;
+          _always = granted;
+        });
+      }
+      return;
+    }
     final service = await Geolocator.isLocationServiceEnabled();
     final whenInUse = await Permission.locationWhenInUse.isGranted;
     final always = await Permission.locationAlways.isGranted;
@@ -577,6 +591,14 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
   }
 
   Future<void> _requestLocation() async {
+    if (kIsWeb) {
+      try {
+        await Geolocator.requestPermission();
+        await Geolocator.getCurrentPosition(); // Safari pregunta aquí
+      } catch (_) {}
+      await _check();
+      return;
+    }
     if (!_service) {
       await Geolocator.openLocationSettings();
       return;
@@ -643,13 +665,18 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
       children: [
         Text(widget.fromSettings ? 'Revisar permisos' : 'Para que nunca falle', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -0.8)),
         const SizedBox(height: 6),
-        const Text('Beside necesita estos permisos para compartir tu ubicación aunque la app esté cerrada.',
-            style: TextStyle(fontSize: 16, color: C.muted, fontWeight: FontWeight.w600, height: 1.4)),
+        Text(
+            kIsWeb
+                ? 'Tu círculo te verá en el mapa mientras tengas Beside abierta.'
+                : 'Beside necesita estos permisos para compartir tu ubicación aunque la app esté cerrada.',
+            style: const TextStyle(fontSize: 16, color: C.muted, fontWeight: FontWeight.w600, height: 1.4)),
         const SizedBox(height: 22),
         _PermissionRow(
           done: _service && _whenInUse && _always,
-          title: isIOS ? 'Ubicación «Siempre»' : 'Ubicación «Permitir todo el tiempo»',
-          subtitle: !_service
+          title: kIsWeb ? 'Ubicación' : (isIOS ? 'Ubicación «Siempre»' : 'Ubicación «Permitir todo el tiempo»'),
+          subtitle: kIsWeb
+              ? (_whenInUse ? 'Listo.' : 'Toca Permitir y acepta en el aviso de Safari.')
+              : !_service
               ? 'El GPS está apagado. Actívalo.'
               : !_whenInUse
                   ? 'Primero permite la ubicación.'

@@ -57,9 +57,12 @@ class BesideApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       home: Config.demo ? const HomeShell() : (Config.isConfigured ? const Gate() : const _MissingConfig()),
-      // En el navegador (vista previa) se muestra con tamaño de celular
+      // En una pantalla grande (PC) se muestra con tamaño de celular;
+      // en el iPhone ocupa toda la pantalla como una app normal
       builder: kIsWeb
-          ? (context, child) => ColoredBox(
+          ? (context, child) => MediaQuery.sizeOf(context).width < 600
+              ? child!
+              : ColoredBox(
                 color: const Color(0xFF0A090B),
                 child: Center(
                   child: Container(

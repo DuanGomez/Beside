@@ -10,6 +10,14 @@ class Config {
     defaultValue: 'https://github.com/DuanGomez/Beside/releases/latest',
   );
 
+  /// Descarga directa del APK más reciente y versión web (para iPhone).
+  static const apkUrl = 'https://github.com/DuanGomez/Beside/releases/latest/download/Beside.apk';
+  static const webUrl = 'https://duangomez.github.io/Beside/';
+  static const latestReleaseApi = 'https://api.github.com/repos/DuanGomez/Beside/releases/latest';
+
+  /// Versión de esta compilación (la etiqueta, p. ej. v1.1.0). Vacía en desarrollo.
+  static const appVersion = String.fromEnvironment('APP_VERSION');
+
   /// Vista previa con datos de ejemplo (sin cuenta ni base de datos).
   static const demo = bool.fromEnvironment('DEMO');
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/app_state.dart';
+import '../services/updates.dart';
 import '../services/tracking.dart';
 import '../theme.dart';
 import '../util/format.dart';
@@ -35,6 +36,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     AppState.instance.latestEvent.addListener(_onEvent);
     final pending = AppState.instance.pendingInviteCode;
     if (pending != null) WidgetsBinding.instance.addPostFrameCallback((_) => _offerJoin(pending));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !AppState.instance.demo) Updates.checkAndOffer(context);
+    });
   }
 
   @override

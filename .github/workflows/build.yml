@@ -12,10 +12,14 @@ permissions:
 
 env:
   FLUTTER_VERSION: '3.47.9'
+  # v1.2.0 -> 1.2.0 (sin etiqueta: 1.0.0)
+  BUILD_NAME: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
   DEFINES: >-
     --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }}
     --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
     --dart-define=SPOTIFY_CLIENT_ID=${{ vars.SPOTIFY_CLIENT_ID }}
+    --dart-define=APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '' }}
+    --build-number=${{ github.run_number }}
 
 jobs:
   android:
@@ -37,7 +41,7 @@ jobs:
             "${{ secrets.ANDROID_KEY_PASSWORD }}" "${{ secrets.ANDROID_KEY_PASSWORD }}" > android/key.properties
       - run: flutter pub get
       - run: flutter test
-      - run: flutter build apk --release $DEFINES
+      - run: flutter build apk --release $DEFINES --build-name=${BUILD_NAME#v}
       - run: cp build/app/outputs/flutter-apk/app-release.apk Beside.apk
       - uses: actions/upload-artifact@v4
         with:
@@ -53,7 +57,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - run: flutter pub get
-      - run: flutter build ios --release --no-codesign $DEFINES
+      - run: flutter build ios --release --no-codesign $DEFINES --build-name=${BUILD_NAME#v}
       - name: Empaquetar IPA
         run: |
           mkdir -p Payload
