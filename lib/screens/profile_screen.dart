@@ -95,13 +95,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await db.from('private_settings').update({'notify_enabled': on}).eq('user_id', _s.myId!);
   }
 
+  /// Muestra el canal de avisos con los pasos para suscribirse en ntfy
+  /// (en iPhone, ntfy no siempre se abre solo desde otra app).
   Future<void> _openNtfy() async {
-    if (_topic == null) return;
-    final ok = await launchUrl(Uri.parse('ntfy://${Config.ntfyServer}/$_topic'), mode: LaunchMode.externalApplication).catchError((_) => false);
-    if (!ok && mounted) {
-      await Clipboard.setData(ClipboardData(text: _topic!));
-      if (mounted) toast(context, 'Instala ntfy primero. Copié tu tema para pegarlo en la app.');
+    final topic = _topic;
+    if (topic == null) {
+      toast(context, 'Todavía no cargo tu canal de avisos. Revisa el internet y vuelve a abrir Perfil.');
+      return;
     }
+    await Clipboard.setData(ClipboardData(text: topic));
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: C.surface,
+        title: const Text('Activar avisos', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Ya copié tu canal. En la app ntfy:', style: TextStyle(color: C.muted, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 10),
+          const Text('1. Toca el botón + (Suscribirse a un tema).\n2. Pega tu canal en «Topic».\n3. Toca «Subscribe» y permite las notificaciones.',
+              style: TextStyle(height: 1.5, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(14), border: Border.all(color: C.border)),
+            child: SelectableText(topic, style: const TextStyle(fontWeight: FontWeight.w800, color: C.accent)),
+          ),
+        ]),
+        actions: [
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: topic)).then((_) {
+              if (context.mounted) toast(context, 'Canal copiado');
+            }),
+            child: const Text('Copiar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              // Android abre ntfy directo en el tema; en iPhone al menos abre la app
+              final direct = await launchUrl(Uri.parse('ntfy://${Config.ntfyServer}/$topic'), mode: LaunchMode.externalApplication)
+                  .catchError((_) => false);
+              if (!direct) await launchUrl(Uri.parse('ntfy://'), mode: LaunchMode.externalApplication).catchError((_) => false);
+            },
+            child: const Text('Abrir ntfy'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<bool> _confirm(String title, String body, String action) async =>
