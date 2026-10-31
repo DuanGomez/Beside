@@ -568,9 +568,14 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
       }
       return;
     }
-    final service = await Geolocator.isLocationServiceEnabled();
-    final whenInUse = await Permission.locationWhenInUse.isGranted;
-    final always = await Permission.locationAlways.isGranted;
+    final service = await Geolocator.isLocationServiceEnabled().catchError((_) => true);
+    // Se pregunta a las dos librerías: en algunos Android una responde mal
+    // aunque en Ajustes el permiso esté bien dado.
+    final geo = await Geolocator.checkPermission().catchError((_) => LocationPermission.denied);
+    final whenInUse = await Permission.locationWhenInUse.isGranted.catchError((_) => false) ||
+        geo == LocationPermission.whileInUse ||
+        geo == LocationPermission.always;
+    final always = await Permission.locationAlways.isGranted.catchError((_) => false) || geo == LocationPermission.always;
     var precise = true;
     if (whenInUse) {
       try {
@@ -630,6 +635,13 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
   Future<void> _finish({required bool share}) async {
     setState(() => _busy = true);
     try {
+      if (share && !_whenInUse && !kIsWeb) {
+        final p = await Geolocator.requestPermission();
+        if (p == LocationPermission.denied || p == LocationPermission.deniedForever) {
+          if (mounted) toast(context, 'Sin permiso de ubicación no se puede compartir. Actívalo en Ajustes › Apps › Beside › Permisos.');
+          return;
+        }
+      }
       if (share) await Tracking.start();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('onboarded_${db.auth.currentUser!.id}', true);
@@ -655,7 +667,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: _busy || !_whenInUse ? null : () => _finish(share: true),
+            onPressed: _busy ? null : () => _finish(share: true),
             child: Text(ready ? 'Empezar a compartir' : 'Compartir solo con la app abierta'),
           ),
         ),

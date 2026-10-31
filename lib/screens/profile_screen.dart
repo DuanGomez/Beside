@@ -1,9 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
+import '../main.dart';
+import '../util/format.dart';
+import '../util/platform.dart';
 import '../services/app_state.dart';
 import '../services/spotify_api.dart';
 import '../services/tracking.dart';
@@ -25,6 +31,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _spotify = false;
   bool _notify = true;
   String? _topic;
+  List<(bool, String)> _diag = [];
 
   @override
   void initState() {
@@ -54,6 +61,114 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _notify = settings?['notify_enabled'] as bool? ?? true;
       _topic = settings?['ntfy_topic'] as String?;
     });
+    await _diagnose();
+  }
+
+  /// Revisa todo lo que necesita el compartir ubicación y lo muestra en Perfil,
+  /// para que con una captura se sepa qué falla.
+  Future<void> _diagnose() async {
+    if (_s.demo || kIsWeb) return;
+    final out = <(bool, String)>[];
+    try {
+      final service = await Geolocator.isLocationServiceEnabled().catchError((_) => false);
+      out.add((service, service ? 'GPS encendido' : 'El GPS (ubicación) del celular está apagado'));
+      final perm = await Geolocator.checkPermission().catchError((_) => LocationPermission.denied);
+      out.add(switch (perm) {
+        LocationPermission.always => (true, 'Permiso de ubicación: todo el tiempo'),
+        LocationPermission.whileInUse => (false, 'Permiso de ubicación: solo con la app abierta (debe ser «todo el tiempo»)'),
+        _ => (false, 'Sin permiso de ubicación'),
+      });
+      if (perm == LocationPermission.always || perm == LocationPermission.whileInUse) {
+        final precise = await Geolocator.getLocationAccuracy().catchError((_) => LocationAccuracyStatus.precise);
+        out.add(precise == LocationAccuracyStatus.precise ? (true, 'Ubicación precisa activada') : (false, 'Ubicación precisa apagada'));
+      }
+      if (isAndroid) {
+        final battery = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+        out.add(battery ? (true, 'Batería sin restricción') : (false, 'Batería con restricción (Android puede cerrar Beside)'));
+        if (_sharing) {
+          final running = await FlutterForegroundTask.isRunningService;
+          out.add(running ? (true, 'Servicio de ubicación encendido') : (false, 'El servicio de ubicación está apagado'));
+        }
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      out.add(prefs.getString('device_key') != null ? (true, 'Celular registrado') : (false, 'Este celular no está registrado todavía'));
+      final okAt = DateTime.tryParse(prefs.getString('track_ok_at') ?? '');
+      final error = prefs.getString('track_error');
+      if (okAt != null) {
+        final fresh = DateTime.now().difference(okAt) < const Duration(minutes: 5);
+        out.add((fresh, 'Último envío de ubicación: ${ago(okAt)}'));
+      } else if (_sharing) {
+        out.add((false, 'Todavía no ha enviado ninguna ubicación'));
+      }
+      if (prefs.getBool('track_coarse') == true) out.add((false, 'Solo llegan ubicaciones aproximadas (revisa «Ubicación precisa»)'));
+      if (error != null) out.add((false, 'Último error: $error'));
+    } catch (e) {
+      out.add((false, 'No se pudo revisar: $e'));
+    }
+    if (mounted) setState(() => _diag = out);
+  }
+
+  Future<void> _testNotify() async {
+    if (_demoBlock()) return;
+    try {
+      await db.rpc('send_test_notification');
+      if (mounted) toast(context, 'Aviso enviado. Debe llegarte a ntfy en unos segundos.');
+    } catch (e) {
+      final msg = e.toString().contains('send_test_notification')
+          ? 'Falta correr el SQL nuevo (circulos_y_prueba.sql) en Supabase.'
+          : friendlyError(e);
+      if (mounted) toast(context, msg);
+    }
+  }
+
+  bool _isOwner(Circle c) => c.createdBy != null && c.createdBy == _s.myId;
+
+  Future<void> _afterCircleChange() async {
+    await _s.reload();
+    if (!mounted) return;
+    if (_s.circles.isEmpty) await Gate.of(context).refresh();
+  }
+
+  Future<void> _removeMember(Circle c, Member m) async {
+    if (_demoBlock()) return;
+    final ok = await _confirm('¿Sacar a ${_s.displayName(m)}?',
+        'Ya no verá tu ubicación ni la del círculo «${c.name}», y ustedes tampoco la suya. Puede volver solo si la invitas otra vez.', 'Sacar');
+    if (!ok) return;
+    try {
+      await db.rpc('remove_member', params: {'circle': c.id, 'member': m.id});
+      await _afterCircleChange();
+      if (mounted) toast(context, '${_s.displayName(m)} salió del círculo.');
+    } catch (e) {
+      if (mounted) toast(context, e.toString().contains('remove_member') ? 'Falta correr el SQL nuevo en Supabase.' : friendlyError(e));
+    }
+  }
+
+  Future<void> _deleteCircle(Circle c) async {
+    if (_demoBlock()) return;
+    final ok = await _confirm('¿Eliminar «${c.name}»?',
+        'Se borra el círculo con sus lugares para todos. Nadie del círculo se volverá a ver en el mapa (a menos que estén en otro círculo juntos).', 'Eliminar');
+    if (!ok) return;
+    try {
+      await db.rpc('delete_circle', params: {'circle': c.id});
+      await _afterCircleChange();
+      if (mounted) toast(context, 'Círculo eliminado.');
+    } catch (e) {
+      if (mounted) toast(context, e.toString().contains('delete_circle') ? 'Falta correr el SQL nuevo en Supabase.' : friendlyError(e));
+    }
+  }
+
+  Future<void> _leaveCircle(Circle c) async {
+    if (_demoBlock()) return;
+    final ok = await _confirm('¿Salir de «${c.name}»?', 'Dejarás de ver a las personas de este círculo y ellas a ti.', 'Salir');
+    if (!ok) return;
+    try {
+      await db.rpc('leave_circle', params: {'circle': c.id});
+      await _afterCircleChange();
+      if (mounted) toast(context, 'Saliste del círculo.');
+    } catch (e) {
+      if (mounted) toast(context, friendlyError(e));
+    }
   }
 
   bool _demoBlock() {
@@ -267,9 +382,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     subtitle: 'Ubicación siempre, notificaciones y batería',
                     onTap: () {
                       if (_demoBlock()) return;
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PermissionsScreen(fromSettings: true)));
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PermissionsScreen(fromSettings: true))).then((_) => _load());
                     },
                   ),
+                  if (_diag.isNotEmpty) ...[
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 12, 8, 8),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [
+                          const Expanded(child: Text('Estado de este celular', style: TextStyle(fontWeight: FontWeight.w900))),
+                          TextButton(onPressed: _diagnose, child: const Text('Actualizar')),
+                        ]),
+                        for (final (ok, text) in _diag)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Icon(ok ? Icons.check_circle_rounded : Icons.error_rounded, size: 18, color: ok ? C.green : C.amber),
+                              const SizedBox(width: 8),
+                              Expanded(child: Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                            ]),
+                          ),
+                      ]),
+                    ),
+                  ],
                 ]),
               ),
 
@@ -289,6 +425,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Activar avisos en este celular',
                     subtitle: 'Usa la app gratis «ntfy». Instálala y toca aquí para conectarla.',
                     onTap: _openNtfy,
+                  ),
+                  const Divider(height: 1),
+                  _LinkRow(
+                    icon: Icons.campaign_rounded,
+                    title: 'Enviarme un aviso de prueba',
+                    subtitle: 'Para revisar que los avisos sí te llegan a ntfy.',
+                    onTap: _testNotify,
                   ),
                 ]),
               ),
@@ -314,7 +457,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Panel(
                   padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
                   child: Column(children: [
-                    for (final m in _s.everyone)
+                    for (final m in _s.everyone.where((m) => c.memberIds.isEmpty || c.memberIds.contains(m.id)))
                       Material(
                         type: MaterialType.transparency,
                         child: ListTile(
@@ -323,8 +466,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           title: Text(m.id == _s.myId ? '${m.name} (tú)' : _s.displayName(m), style: const TextStyle(fontWeight: FontWeight.w900)),
                           subtitle: _s.nicknames[m.id] != null ? Text(m.name, style: const TextStyle(color: C.muted)) : null,
                           trailing: m.id == _s.myId
-                              ? null
-                              : IconButton(tooltip: 'Ponerle un apodo', icon: const Icon(Icons.edit_rounded, color: C.muted, size: 20), onPressed: () => _editNickname(m)),
+                              ? (_isOwner(c) ? const Text('Creador', style: TextStyle(color: C.muted, fontWeight: FontWeight.w700, fontSize: 12)) : null)
+                              : Row(mainAxisSize: MainAxisSize.min, children: [
+                                  IconButton(tooltip: 'Ponerle un apodo', icon: const Icon(Icons.edit_rounded, color: C.muted, size: 20), onPressed: () => _editNickname(m)),
+                                  if (_isOwner(c))
+                                    IconButton(
+                                      tooltip: 'Sacar del círculo',
+                                      icon: const Icon(Icons.person_remove_rounded, color: C.danger, size: 20),
+                                      onPressed: () => _removeMember(c, m),
+                                    ),
+                                ]),
                         ),
                       ),
                     const SizedBox(height: 6),
@@ -335,6 +486,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         icon: const Icon(Icons.person_add_alt_1_rounded),
                         label: Text('Invitar · ${c.code}'),
                       ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _isOwner(c) ? _deleteCircle(c) : _leaveCircle(c),
+                      style: TextButton.styleFrom(foregroundColor: C.danger),
+                      icon: Icon(_isOwner(c) ? Icons.delete_outline_rounded : Icons.logout_rounded, size: 20),
+                      label: Text(_isOwner(c) ? 'Eliminar círculo' : 'Salir del círculo'),
                     ),
                   ]),
                 ),

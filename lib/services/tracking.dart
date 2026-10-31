@@ -77,16 +77,24 @@ class Tracking {
     await prefs.setBool(_kSharing, true);
 
     if (isAndroid) {
+      final ServiceRequestResult result;
       if (await FlutterForegroundTask.isRunningService) {
-        await FlutterForegroundTask.restartService();
+        result = await FlutterForegroundTask.restartService();
       } else {
-        await FlutterForegroundTask.startService(
+        result = await FlutterForegroundTask.startService(
           serviceId: 717,
           serviceTypes: [ForegroundServiceTypes.location],
           notificationTitle: 'Compartiendo tu ubicación',
           notificationText: 'Tu círculo te ve en el mapa. Toca para abrir Beside.',
           callback: startTrackingCallback,
         );
+      }
+      if (result is ServiceRequestFailure) {
+        // El servicio no arrancó (algunas marcas lo bloquean): se comparte al
+        // menos mientras la app esté abierta y queda anotado para Perfil.
+        await Tracker.saveStatus(error: 'Android no dejó iniciar el servicio: ${result.error}');
+        _iosTracker ??= Tracker();
+        await _iosTracker!.start();
       }
     } else {
       _iosTracker ??= Tracker();
@@ -102,12 +110,9 @@ class Tracking {
   static Future<void> stop() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kSharing, false);
-    if (isAndroid) {
-      await FlutterForegroundTask.stopService();
-    } else {
-      await _iosTracker?.stop();
-      _iosTracker = null;
-    }
+    if (isAndroid) await FlutterForegroundTask.stopService();
+    await _iosTracker?.stop();
+    _iosTracker = null;
   }
 
   /// Al cerrar sesión: apagar y olvidar la llave del dispositivo.

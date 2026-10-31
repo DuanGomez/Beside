@@ -121,7 +121,12 @@ class Tracker {
   void _onPosition(Position p, {bool force = false}) {
     final now = DateTime.now();
     _lastFixAt = now;
-    if (p.accuracy > _worstAccuracy) return;
+    if (p.accuracy > _worstAccuracy) {
+      // Sin «Ubicación precisa» Android solo da lecturas de 1-3 km.
+      // Si hace rato no hay una buena, se envía igual: mejor algo que nada.
+      if (now.difference(_lastGoodAt) < const Duration(minutes: 5)) return;
+      unawaited(Tracker.saveStatus(coarse: true));
+    }
 
     final good = p.accuracy <= _goodAccuracy;
     if (good) _lastGoodAt = now;
@@ -246,6 +251,20 @@ class Tracker {
 
   // ------------------------------------------------------------------
 
+  /// Deja anotado cómo va el envío, para mostrarlo en Perfil (el servicio
+  /// de Android corre aparte; se comunican por las preferencias).
+  static Future<void> saveStatus({bool? ok, String? error, bool? coarse}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (ok == true) {
+        await prefs.setString('track_ok_at', DateTime.now().toIso8601String());
+        await prefs.remove('track_error');
+      }
+      if (error != null) await prefs.setString('track_error', error);
+      if (coarse != null) await prefs.setBool('track_coarse', coarse);
+    } catch (_) {}
+  }
+
   Future<bool> _rpc(String fn, Map<String, dynamic> args) async {
     try {
       final res = await http
@@ -259,11 +278,18 @@ class Tracker {
             body: jsonEncode({'device_key': _deviceKey, ...args}),
           )
           .timeout(const Duration(seconds: 20));
+      final ok = res.statusCode >= 200 && res.statusCode < 300;
       if (res.statusCode == 400 && res.body.contains('Dispositivo no registrado')) {
+        await saveStatus(error: 'Este celular perdió su registro. Apaga y vuelve a prender «Compartir mi ubicación».');
         await stop(); // la llave se revocó (cerró sesión en otro lado)
+      } else if (ok && fn == 'push_location') {
+        await saveStatus(ok: true, coarse: (args['p_accuracy'] as num? ?? 0) > _worstAccuracy);
+      } else if (!ok) {
+        await saveStatus(error: 'El servidor respondió ${res.statusCode}');
       }
-      return res.statusCode >= 200 && res.statusCode < 300;
+      return ok;
     } catch (_) {
+      await saveStatus(error: 'Sin internet');
       return false;
     }
   }

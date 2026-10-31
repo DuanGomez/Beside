@@ -71,10 +71,12 @@ class Place {
 }
 
 class Circle {
-  Circle({required this.id, required this.name, required this.code});
+  Circle({required this.id, required this.name, required this.code, this.createdBy, this.memberIds = const []});
   final String id;
   final String name;
   final String code;
+  final String? createdBy;
+  final List<String> memberIds;
 }
 
 class PlaceEvent {
@@ -192,11 +194,23 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshCircles() async {
     if (demo) return notifyListeners();
-    final rows = await db.from('circles').select('id, name, code').order('created_at');
+    final rows = await db.from('circles').select('id, name, code, created_by, circle_members(user_id)').order('created_at');
     circles
       ..clear()
-      ..addAll(rows.map((r) => Circle(id: r['id'] as String, name: r['name'] as String, code: r['code'] as String)));
+      ..addAll(rows.map((r) => Circle(
+            id: r['id'] as String,
+            name: r['name'] as String,
+            code: r['code'] as String,
+            createdBy: r['created_by'] as String?,
+            memberIds: [for (final m in (r['circle_members'] as List? ?? const [])) (m as Map)['user_id'] as String],
+          )));
     notifyListeners();
+  }
+
+  /// Vuelve a cargar todo (después de sacar a alguien o borrar un círculo).
+  Future<void> reload() async {
+    await stop();
+    await start();
   }
 
   /// Avisa a las pantallas que algo cambió (lo usa el modo de prueba).
