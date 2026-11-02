@@ -93,6 +93,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       out.add(prefs.getString('device_key') != null ? (true, 'Celular registrado') : (false, 'Este celular no está registrado todavía'));
+      final beatAt = DateTime.tryParse(prefs.getString('track_beat_at') ?? '');
+      if (_sharing && beatAt != null) {
+        final alive = DateTime.now().difference(beatAt) < const Duration(minutes: 3);
+        out.add(alive
+            ? (true, 'Servicio en segundo plano activo (${ago(beatAt)})')
+            : (false, 'El celular cerró el servicio en segundo plano: último latido ${ago(beatAt)}'));
+      }
       final okAt = DateTime.tryParse(prefs.getString('track_ok_at') ?? '');
       final error = prefs.getString('track_error');
       if (okAt != null) {

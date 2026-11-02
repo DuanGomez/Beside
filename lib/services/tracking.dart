@@ -19,7 +19,7 @@ class _TrackerTaskHandler extends TaskHandler {
   Future<void> onStart(DateTime timestamp, TaskStarter starter) => _tracker.start();
 
   @override
-  void onRepeatEvent(DateTime timestamp) {}
+  void onRepeatEvent(DateTime timestamp) => _tracker.tick();
 
   @override
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) => _tracker.stop();
@@ -46,7 +46,8 @@ class Tracking {
       ),
       iosNotificationOptions: const IOSNotificationOptions(showNotification: false, playSound: false),
       foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.nothing(),
+        // Latido nativo cada minuto, además del temporizador de Dart
+        eventAction: ForegroundTaskEventAction.repeat(60000),
         autoRunOnBoot: true,
         autoRunOnMyPackageReplaced: true,
         allowWakeLock: true,

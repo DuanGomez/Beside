@@ -28,6 +28,10 @@ class Tracker {
   String? _deviceKey;
   bool _moving = true;
   bool _running = false;
+  // Si el proveedor de Google deja de entregar lecturas (Xiaomi lo pausa en
+  // segundo plano), se cambia al GPS directo del sistema.
+  bool _useLocationManager = false;
+  DateTime _lastBeatAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   Position? _lastSent;
   DateTime _lastSentAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -74,9 +78,10 @@ class Tracker {
   LocationSettings _settings(bool moving) {
     if (isAndroid) {
       return AndroidSettings(
-        accuracy: moving ? LocationAccuracy.best : LocationAccuracy.medium,
+        accuracy: moving ? LocationAccuracy.best : LocationAccuracy.high,
         distanceFilter: 0,
         intervalDuration: Duration(seconds: moving ? 4 : 30),
+        forceLocationManager: _useLocationManager,
       );
     }
     if (!isIOS) {
@@ -110,9 +115,22 @@ class Tracker {
   Future<void> _freshFix() async {
     try {
       final p = await Geolocator.getCurrentPosition(
-        locationSettings: LocationSettings(accuracy: LocationAccuracy.best, timeLimit: const Duration(seconds: 25)),
+        locationSettings: isAndroid
+            ? AndroidSettings(accuracy: LocationAccuracy.best, timeLimit: const Duration(seconds: 20), forceLocationManager: _useLocationManager)
+            : LocationSettings(accuracy: LocationAccuracy.best, timeLimit: const Duration(seconds: 25)),
       );
       _onPosition(p, force: true);
+      return;
+    } catch (_) {}
+    if (!isAndroid) return;
+    // Segundo intento con el otro proveedor (GPS directo o el de Google)
+    try {
+      final p = await Geolocator.getCurrentPosition(
+        locationSettings: AndroidSettings(accuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 20), forceLocationManager: !_useLocationManager),
+      );
+      _useLocationManager = !_useLocationManager; // este sí respondió: quedarse con él
+      _onPosition(p, force: true);
+      if (_running) _listen(moving: _moving);
     } catch (_) {
       // Sin señal por ahora; el siguiente latido lo vuelve a intentar
     }
@@ -204,13 +222,19 @@ class Tracker {
     }
   }
 
+  /// Latido: lo llaman el temporizador y el servicio de Android (cada minuto).
+  Future<void> tick() => _heartbeat();
+
   Future<void> _heartbeat() async {
     if (!_running) return;
     final now = DateTime.now();
-    if (now.difference(_lastFixAt) > const Duration(minutes: 3)) {
+    if (now.difference(_lastBeatAt) < const Duration(seconds: 40)) return; // ya latió
+    _lastBeatAt = now;
+    unawaited(SharedPreferences.getInstance().then((p) => p.setString('track_beat_at', now.toIso8601String())).catchError((_) => true));
+    if (now.difference(_lastFixAt) > const Duration(seconds: 90)) {
       // El GPS no ha entregado nada: pedir una lectura directa y revivir el flujo
       await _freshFix();
-      if (DateTime.now().difference(_lastFixAt) > const Duration(minutes: 3)) _listen(moving: _moving);
+      if (DateTime.now().difference(_lastFixAt) > const Duration(seconds: 90)) _listen(moving: _moving);
       return;
     }
     if (now.difference(_lastSentAt) >= const Duration(seconds: 55)) {
