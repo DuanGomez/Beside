@@ -35,6 +35,9 @@ jobs:
           flutter build web --release --base-href /Beside/
           --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }}
           --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+      # Demo con datos de ejemplo y sin cuenta (para el portafolio): /Beside/demo/
+      - run: flutter build web --release --base-href /Beside/demo/ --dart-define=DEMO=true --dart-define=JUNTOS=true -o build/demo
+      - run: cp -r build/demo build/web/demo
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/web
